@@ -10,3 +10,9 @@ services:
         sync: false
       - key: GROQ_MODEL
         value: groq/llama-3.3-70b-versatile
+      - key: CLIENT_USERNAME
+        sync: false
+      - key: CLIENT_PASSWORD
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
