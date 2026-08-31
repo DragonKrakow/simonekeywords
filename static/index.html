@@ -1,128 +1,474 @@
-import json
-from crewai import Crew, Process, Task
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Simone Guarracino — Keyword Research</title>
+  <style>
+    :root {
+      --gold:   #c9a84c;
+      --dark:   #1a1a1a;
+      --mid:    #2c2c2c;
+      --light:  #f5f0e8;
+      --white:  #ffffff;
+      --accent: #8b6914;
+      --green:  #2d7a4f;
+      --red:    #b03030;
+      --radius: 8px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--dark);
+      color: var(--light);
+      min-height: 100vh;
+    }
+    /* ── Header ── */
+    header {
+      background: var(--mid);
+      border-bottom: 2px solid var(--gold);
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header h1 { font-size: 1.3rem; color: var(--gold); letter-spacing: 1px; }
+    header .subtitle { font-size: .75rem; color: #aaa; margin-top: 2px; }
+    #btn-logout {
+      display: none;
+      background: transparent;
+      border: 1px solid var(--gold);
+      color: var(--gold);
+      padding: 6px 14px;
+      border-radius: var(--radius);
+      cursor: pointer;
+      font-size: .85rem;
+    }
+    #btn-logout:hover { background: var(--gold); color: var(--dark); }
 
-from src.agents import build_agents
+    /* ── Main container ── */
+    main { max-width: 960px; margin: 48px auto; padding: 0 16px; }
 
+    /* ── Card ── */
+    .card {
+      background: var(--mid);
+      border: 1px solid #3a3a3a;
+      border-radius: var(--radius);
+      padding: 32px;
+    }
 
-FINAL_JSON_INSTRUCTIONS = """
-Return ONLY a JSON array (no markdown fences, no prose before or after).
-Each item must be an object with exactly these fields:
-- "keyword": string
-- "market": string (country name)
-- "language": string (ISO code, e.g. "en", "de")
-- "intent": one of "informational", "commercial", "transactional", "navigational"
-- "platform": one of "Google (SEO)", "Google Shopping / Ads", "Pinterest", "Instagram", "TikTok", "Etsy"
-- "cluster": short string grouping this keyword with related ones (e.g. "Art Deco armchairs")
-- "priority": integer 1-5 (5 = highest opportunity: clear buyer intent + fits the niche tightly)
-"""
+    /* ── Login ── */
+    #panel-login h2 { color: var(--gold); margin-bottom: 24px; font-size: 1.4rem; }
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; margin-bottom: 6px; font-size: .9rem; color: #ccc; }
+    .form-group input {
+      width: 100%; padding: 10px 14px;
+      background: #111; border: 1px solid #444; border-radius: var(--radius);
+      color: var(--light); font-size: 1rem;
+    }
+    .form-group input:focus { outline: none; border-color: var(--gold); }
+    .btn-primary {
+      width: 100%; padding: 12px;
+      background: var(--gold); color: var(--dark);
+      border: none; border-radius: var(--radius);
+      font-size: 1rem; font-weight: 700;
+      cursor: pointer; margin-top: 8px;
+    }
+    .btn-primary:hover { background: #e0ba60; }
+    .btn-primary:disabled { opacity: .5; cursor: default; }
+    .error-msg { color: var(--red); font-size: .85rem; margin-top: 8px; min-height: 1.2em; }
 
+    /* ── Research panel ── */
+    #panel-research { display: none; }
+    #panel-research h2 { color: var(--gold); margin-bottom: 8px; font-size: 1.4rem; }
+    #panel-research p.hint { color: #aaa; font-size: .9rem; margin-bottom: 24px; }
 
-def build_crew(profile: dict) -> Crew:
-    agents = build_agents()
+    /* Category grid */
+    #category-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .cat-card {
+      padding: 14px 16px;
+      background: #111;
+      border: 2px solid #3a3a3a;
+      border-radius: var(--radius);
+      cursor: pointer;
+      font-size: .9rem;
+      transition: border-color .15s, background .15s;
+      text-align: center;
+    }
+    .cat-card:hover { border-color: var(--gold); }
+    .cat-card.selected { border-color: var(--gold); background: #2a2200; color: var(--gold); font-weight: 600; }
 
-    categories = ", ".join(profile["categories"])
-    markets = ", ".join(f"{m['country']} ({m['language']})" for m in profile["markets"])
-    platforms = ", ".join(profile["platforms"])
+    #btn-run {
+      padding: 12px 32px;
+      background: var(--gold); color: var(--dark);
+      border: none; border-radius: var(--radius);
+      font-size: 1rem; font-weight: 700; cursor: pointer;
+    }
+    #btn-run:hover { background: #e0ba60; }
+    #btn-run:disabled { opacity: .5; cursor: default; }
 
-    task_breakdown = Task(
-        description=(
-            f"Client business: {profile['business_description']}\n\n"
-            f"Rough category list given: {categories}\n"
-            f"Target markets: {markets}\n\n"
-            "Produce a refined list of 8-14 tightly-defined sub-niches "
-            "(e.g. not 'furniture' but 'mirrored Art Deco console tables'), "
-            "plus 2-3 buyer personas describing who searches for this and "
-            "why (gift buyer, interior designer, homeowner redecorating, etc). "
-            "Write this as plain text, clearly organized."
-        ),
-        expected_output="A refined sub-niche list and buyer personas as plain text.",
-        agent=agents["vertical_strategist"],
-    )
+    /* Spinner */
+    #spinner {
+      display: none; text-align: center; padding: 40px;
+      color: var(--gold); font-size: .95rem;
+    }
+    .spinner-ring {
+      display: inline-block; width: 36px; height: 36px;
+      border: 4px solid #444; border-top-color: var(--gold);
+      border-radius: 50%; animation: spin .8s linear infinite;
+      margin-bottom: 12px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
 
-    task_keywords = Task(
-        description=(
-            f"Using the sub-niches and personas above, generate keywords for "
-            f"EVERY target market ({markets}), in the correct local language "
-            "for each market — not machine-translated, but how a native "
-            "shopper would actually search. For each market produce a mix of: "
-            "- 5+ short-tail keywords (2-3 words)\n"
-            "- 8+ long-tail keywords (4+ words, specific style/material/room)\n"
-            "Cover style descriptors (Art Deco, Gatsby, glam, velvet, gold "
-            "metal), product types, and room/use-case context. "
-            "List them as plain text grouped by market, ready for the next "
-            "step to structure and score."
-        ),
-        expected_output="A plain-text list of keywords grouped by market/language.",
-        agent=agents["keyword_researcher"],
-        context=[task_breakdown],
-    )
+    /* Results */
+    #results { margin-top: 32px; }
+    #results h3 { color: var(--gold); margin-bottom: 16px; }
+    .toolbar {
+      display: flex; gap: 12px; align-items: center; margin-bottom: 12px; flex-wrap: wrap;
+    }
+    .toolbar input {
+      padding: 8px 12px; background: #111; border: 1px solid #444;
+      border-radius: var(--radius); color: var(--light); font-size: .9rem; flex: 1; min-width: 180px;
+    }
+    .toolbar input:focus { outline: none; border-color: var(--gold); }
+    .toolbar select {
+      padding: 8px 10px; background: #111; border: 1px solid #444;
+      border-radius: var(--radius); color: var(--light); font-size: .9rem;
+    }
+    .btn-export {
+      padding: 8px 16px; background: transparent;
+      border: 1px solid var(--gold); color: var(--gold);
+      border-radius: var(--radius); cursor: pointer; font-size: .85rem;
+    }
+    .btn-export:hover { background: var(--gold); color: var(--dark); }
 
-    task_platforms = Task(
-        description=(
-            f"For the keyword list above, assign each keyword (or clearly "
-            f"note it applies to a cluster) the single best-fit platform from: "
-            f"{platforms}. Inspirational/visual style searches (e.g. 'art deco "
-            "living room ideas') usually fit Pinterest/Instagram/TikTok; "
-            "specific product searches with buying intent usually fit Google "
-            "SEO or Google Shopping/Ads; handmade/vintage-style niche terms "
-            "can fit Etsy. Briefly justify non-obvious picks."
-        ),
-        expected_output="The keyword list annotated with a platform and short rationale per keyword.",
-        agent=agents["platform_strategist"],
-        context=[task_keywords],
-    )
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+    thead th {
+      background: #111; color: var(--gold);
+      padding: 10px 12px; text-align: left;
+      border-bottom: 2px solid var(--gold); white-space: nowrap;
+    }
+    tbody tr:nth-child(even) { background: #222; }
+    tbody td { padding: 9px 12px; border-bottom: 1px solid #333; vertical-align: top; }
+    .priority { display: inline-block; font-weight: 700; }
+    .p5 { color: #e8c84a; } .p4 { color: #a8c860; }
+    .p3 { color: #78b8d0; } .p2 { color: #aaa; } .p1 { color: #666; }
+    .badge {
+      display: inline-block; padding: 2px 8px; border-radius: 12px;
+      font-size: .78rem; font-weight: 600;
+    }
+    .intent-transactional { background: #1a3d1a; color: #6dbb6d; }
+    .intent-commercial     { background: #1a2a3d; color: #6d9dbb; }
+    .intent-informational  { background: #2d2d1a; color: #b8b84a; }
+    .intent-navigational   { background: #2d1a2d; color: #b86db8; }
+  </style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>✦ Simone Guarracino — Keyword Research</h1>
+    <div class="subtitle">Vertical SEO Intelligence · Luxury Home Decor & Furniture</div>
+  </div>
+  <button id="btn-logout" onclick="logout()">Sign out</button>
+</header>
 
-    task_final = Task(
-        description=(
-            "Take everything from the previous steps and produce the final "
-            "deliverable. Deduplicate near-identical keywords, group into "
-            "clusters, assign search intent and a 1-5 priority score.\n\n"
-            f"{FINAL_JSON_INSTRUCTIONS}"
-        ),
-        expected_output="A raw JSON array matching the specified schema, nothing else.",
-        agent=agents["editor"],
-        context=[task_breakdown, task_keywords, task_platforms],
-    )
+<main>
+  <!-- Login -->
+  <div id="panel-login" class="card" style="max-width:400px;margin:auto;">
+    <h2>Sign in</h2>
+    <div class="form-group">
+      <label for="inp-user">Username</label>
+      <input id="inp-user" type="text" placeholder="username" autocomplete="username" />
+    </div>
+    <div class="form-group">
+      <label for="inp-pass">Password</label>
+      <input id="inp-pass" type="password" placeholder="••••••••" autocomplete="current-password" />
+    </div>
+    <button class="btn-primary" id="btn-login" onclick="doLogin()">Sign in</button>
+    <div class="error-msg" id="login-err"></div>
+  </div>
 
-    return Crew(
-        agents=list(agents.values()),
-        tasks=[task_breakdown, task_keywords, task_platforms, task_final],
-        process=Process.sequential,
-        verbose=False,
-    )
+  <!-- Research -->
+  <div id="panel-research" class="card">
+    <h2>Keyword Research</h2>
+    <p class="hint">Choose a furniture category and click <strong>Generate Keywords</strong>. The AI crew will research native search terms across all markets and platforms.</p>
 
+    <div id="category-grid"></div>
 
-def run_keyword_research(profile: dict) -> list[dict]:
-    """Runs the crew and returns a parsed list of keyword dicts.
+    <button id="btn-run" onclick="runResearch()" disabled>Generate Keywords</button>
 
-    Falls back to wrapping raw text if the model doesn't return clean JSON.
-    """
-    crew = build_crew(profile)
-    result = crew.kickoff()
-    raw = str(result)
+    <div id="spinner">
+      <div><div class="spinner-ring"></div></div>
+      Researching keywords — this takes 1–2 minutes…
+    </div>
 
-    raw = raw.strip()
-    if raw.startswith("```"):
-        raw = raw.strip("`")
-        if raw.lower().startswith("json"):
-            raw = raw[4:]
-        raw = raw.strip()
+    <div id="results" style="display:none;">
+      <h3 id="results-heading"></h3>
+      <div class="toolbar">
+        <input id="filter-input" type="text" placeholder="Filter keywords…" oninput="filterTable()" />
+        <select id="filter-market" onchange="filterTable()"><option value="">All markets</option></select>
+        <select id="filter-platform" onchange="filterTable()"><option value="">All platforms</option></select>
+        <select id="filter-intent" onchange="filterTable()"><option value="">All intents</option></select>
+        <button class="btn-export" onclick="exportCSV()">⬇ Export CSV</button>
+      </div>
+      <div class="table-wrap">
+        <table id="kw-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Keyword</th>
+              <th>Market</th>
+              <th>Lang</th>
+              <th>Intent</th>
+              <th>Platform</th>
+              <th>Cluster</th>
+              <th>Priority</th>
+            </tr>
+          </thead>
+          <tbody id="kw-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
 
-    try:
-        data = json.loads(raw)
-        if isinstance(data, list):
-            return data
-    except json.JSONDecodeError:
-        pass
+<script>
+  const TOKEN_KEY = 'sg_kw_token';
+  let allKeywords = [];
+  let selectedCategory = null;
 
-    # Fallback: surface the raw text so nothing is silently lost
-    return [{
-        "keyword": "PARSE_ERROR_SEE_RAW_OUTPUT",
-        "market": "",
-        "language": "",
-        "intent": "",
-        "platform": "",
-        "cluster": "raw_output",
-        "priority": 0,
-        "raw": raw,
-    }]
+  // ── On load ──────────────────────────────────────────────────────────────
+  (async function init() {
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (token) {
+      try {
+        await loadCategories(token);
+        showResearch();
+      } catch (_) {
+        localStorage.removeItem(TOKEN_KEY);
+        showLogin();
+      }
+    } else {
+      showLogin();
+    }
+  })();
+
+  // ── Panels ───────────────────────────────────────────────────────────────
+  function showLogin() {
+    document.getElementById('panel-login').style.display = '';
+    document.getElementById('panel-research').style.display = 'none';
+    document.getElementById('btn-logout').style.display = 'none';
+  }
+  function showResearch() {
+    document.getElementById('panel-login').style.display = 'none';
+    document.getElementById('panel-research').style.display = '';
+    document.getElementById('btn-logout').style.display = '';
+  }
+
+  // ── Login ─────────────────────────────────────────────────────────────────
+  document.getElementById('inp-pass').addEventListener('keydown', e => {
+    if (e.key === 'Enter') doLogin();
+  });
+
+  async function doLogin() {
+    const btn = document.getElementById('btn-login');
+    const err = document.getElementById('login-err');
+    err.textContent = '';
+    btn.disabled = true;
+    btn.textContent = 'Signing in…';
+
+    const username = document.getElementById('inp-user').value.trim();
+    const password = document.getElementById('inp-pass').value;
+
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        err.textContent = d.detail || 'Invalid credentials';
+        return;
+      }
+      const { token } = await res.json();
+      localStorage.setItem(TOKEN_KEY, token);
+      await loadCategories(token);
+      showResearch();
+    } catch (e) {
+      err.textContent = 'Network error — please try again.';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Sign in';
+    }
+  }
+
+  async function logout() {
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (token) {
+      await fetch('/api/logout', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + token,
+      }).catch(() => {});
+    }
+    localStorage.removeItem(TOKEN_KEY);
+    showLogin();
+  }
+
+  // ── Categories ────────────────────────────────────────────────────────────
+  async function loadCategories(token) {
+    const res = await fetch('/api/categories', {
+      headers: { Authorization: 'Bearer ' + token,
+    });
+    if (!res.ok) throw new Error('Unauthorized');
+    const { categories } = await res.json();
+
+    const grid = document.getElementById('category-grid');
+    grid.innerHTML = '';
+    categories.forEach(cat => {
+      const div = document.createElement('div');
+      div.className = 'cat-card';
+      div.textContent = cat;
+      div.dataset.cat = cat;
+      div.addEventListener('click', () => selectCategory(cat, div));
+      grid.appendChild(div);
+    });
+  }
+
+  function selectCategory(cat, el) {
+    document.querySelectorAll('.cat-card').forEach(c => c.classList.remove('selected'));
+    el.classList.add('selected');
+    selectedCategory = cat;
+    document.getElementById('btn-run').disabled = false;
+  }
+
+  // ── Research ──────────────────────────────────────────────────────────────
+  async function runResearch() {
+    if (!selectedCategory) return;
+    const token = localStorage.getItem(TOKEN_KEY);
+
+    document.getElementById('btn-run').disabled = true;
+    document.getElementById('spinner').style.display = '';
+    document.getElementById('results').style.display = 'none';
+
+    try {
+      const res = await fetch('/api/research', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + token,
+        body: JSON.stringify({ category: selectedCategory }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        alert('Error: ' + (d.detail || res.status));
+        return;
+      }
+      const { keywords } = await res.json();
+      allKeywords = keywords;
+      renderResults(keywords, selectedCategory);
+    } catch (e) {
+      alert('Network error — please try again.');
+    } finally {
+      document.getElementById('spinner').style.display = 'none';
+      document.getElementById('btn-run').disabled = false;
+    }
+  }
+
+  // ── Results ───────────────────────────────────────────────────────────────
+  function renderResults(keywords, category) {
+    document.getElementById('results-heading').textContent =
+      `Results for "${category}" — ${keywords.length} keywords`;
+
+    // Populate filter dropdowns
+    const markets   = [...new Set(keywords.map(k => k.market))].sort();
+    const platforms = [...new Set(keywords.map(k => k.platform))].sort();
+    const intents   = [...new Set(keywords.map(k => k.intent))].sort();
+
+    populateSelect('filter-market',   markets);
+    populateSelect('filter-platform', platforms);
+    populateSelect('filter-intent',   intents);
+
+    renderTable(keywords);
+    document.getElementById('results').style.display = '';
+  }
+
+  function populateSelect(id, values) {
+    const sel = document.getElementById(id);
+    const current = sel.value;
+    sel.innerHTML = `<option value="">All</option>`;
+    values.forEach(v => {
+      const opt = document.createElement('option');
+      opt.value = v; opt.textContent = v;
+      if (v === current) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }
+
+  function renderTable(keywords) {
+    const tbody = document.getElementById('kw-tbody');
+    tbody.innerHTML = '';
+    keywords.forEach((kw, i) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td style="color:#666">${i + 1}</td>
+        <td><strong>${esc(kw.keyword)}</strong></td>
+        <td>${esc(kw.market || '')}</td>
+        <td>${esc(kw.language || '')}</td>
+        <td><span class="badge intent-${(kw.intent||'').toLowerCase()}">${esc(kw.intent || '')}</span></td>
+        <td>${esc(kw.platform || '')}</td>
+        <td style="color:#aaa;font-size:.82rem">${esc(kw.cluster || '')}</td>
+        <td><span class="priority p${kw.priority}">${'★'.repeat(kw.priority)}${'☆'.repeat(5 - kw.priority)}</span></td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function filterTable() {
+    const text     = document.getElementById('filter-input').value.toLowerCase();
+    const market   = document.getElementById('filter-market').value;
+    const platform = document.getElementById('filter-platform').value;
+    const intent   = document.getElementById('filter-intent').value;
+
+    const filtered = allKeywords.filter(kw => {
+      if (text     && !kw.keyword.toLowerCase().includes(text))     return false;
+      if (market   && kw.market   !== market)                       return false;
+      if (platform && kw.platform !== platform)                     return false;
+      if (intent   && kw.intent   !== intent)                       return false;
+      return true;
+    });
+    renderTable(filtered);
+  }
+
+  // ── CSV export ────────────────────────────────────────────────────────────
+  function exportCSV() {
+    const headers = ['keyword','market','language','intent','platform','cluster','priority'];
+    const rows = allKeywords.map(kw =>
+      headers.map(h => `"${(kw[h] ?? '').toString().replace(/"/g, '""')}"`).join(',')
+    );
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    a.download = `keywords-${selectedCategory.replace(/\s+/g,'-')}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // ── Utils ─────────────────────────────────────────────────────────────────
+  function esc(str) {
+    return String(str)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;');
+  }
+</script>
+</body>
+</html>
+
